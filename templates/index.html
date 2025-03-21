@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Interactive Weather App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #eef;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      background-color: #3498db;
+      color: white;
+      padding: 15px;
+      text-align: center;
+    }
+    .container {
+      padding: 20px;
+    }
+    .input-group {
+      margin-bottom: 15px;
+    }
+    input[type="text"] {
+      padding: 10px;
+      width: 300px;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      margin-left: 5px;
+      cursor: pointer;
+    }
+    #weather-stats {
+      white-space: pre-wrap;
+      background: #fff;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 20px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+    }
+    #chart-container {
+      margin-top: 30px;
+    }
+    #saved-cities {
+      margin-top: 20px;
+      background: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Interactive Weather App</h1>
+  </div>
+  <div class="container">
+    <div class="input-group">
+      <input type="text" id="city" placeholder="Enter city name">
+      <button onclick="getWeather()">Get Weather</button>
+      <button onclick="getForecast()">Get Forecast</button>
+      <button onclick="startVoiceCommand()">Voice Command</button>
+      <button onclick="showMap()">Show Surrounding Map</button>
+    </div>
+    <div id="weather-stats"></div>
+    <div id="chart-container">
+      <canvas id="forecastChart" width="800" height="400"></canvas>
+    </div>
+    <div id="saved-cities">
+      <h3>Saved Cities:</h3>
+      <ul id="citiesList"></ul>
+    </div>
+  </div>
+
+  <!-- Include Chart.js and datalabels plugin from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <script>
+    // Function to get weather data and display formatted stats
+    function getWeather() {
+      var city = document.getElementById('city').value;
+      fetch('/weather?city=' + encodeURIComponent(city))
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            alert("Error: " + data.error);
+          } else {
+            document.getElementById('weather-stats').innerText = data.formatted;
+            loadSavedCities();
+          }
+        });
+    }
+
+    // Function to get forecast data and display an interactive multi-dataset chart using Chart.js
+    function getForecast() {
+      var city = document.getElementById('city').value;
+      fetch('/forecast?city=' + encodeURIComponent(city))
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            alert("Error: " + data.error);
+          } else {
+            drawForecastChart(data);
+            loadSavedCities();
+          }
+        });
+    }
+
+    // Voice command: calls the /voice endpoint, then processes the command.
+    function startVoiceCommand() {
+      fetch('/voice')
+        .then(response => response.json())
+        .then(result => {
+          const command = result.command;
+          alert("Voice Command: " + command);
+          var cities = extractCities(command);
+          if (cities.length === 0) {
+            alert("No city detected in voice command.");
+            return;
+          }
+          cities.forEach(city => {
+            document.getElementById('city').value = city;
+            getWeather();
+            getForecast();
+          });
+        });
+    }
+
+    // Function to open a new window with the surrounding map view.
+    function showMap() {
+      var city = document.getElementById('city').value;
+      if (!city) {
+        alert("Please enter a city.");
+        return;
+      }
+      window.open('/mapview?city=' + encodeURIComponent(city), '_blank');
+    }
+
+    // Simple function to extract city names from a voice command.
+    function extractCities(transcript) {
+      transcript = transcript.toLowerCase();
+      var cities = [];
+      if (transcript.includes("in")) {
+        var parts = transcript.split("in");
+        var cityPart = parts[1];
+        cities = cityPart.split(" and ").map(s => s.trim());
+      } else if (transcript.includes("for")) {
+        var parts = transcript.split("for");
+        var cityPart = parts[1];
+        cities = cityPart.split(" and ").map(s => s.trim());
+      }
+      return cities;
+    }
+
+    // Function to draw forecast chart with multiple datasets (Temperature, Humidity, Rain, Snow)
+    // and annotate each temperature point with the weather condition.
+    function drawForecastChart(data) {
+      var labels = [];
+      var temps = [];
+      var hums = [];
+      var rains = [];
+      var snows = [];
+      var conditions = [];
+      data.list.forEach(item => {
+        labels.push(item.dt_txt);
+        var tempF = item.main.temp * 9/5 + 32;
+        temps.push(tempF);
+        hums.push(item.main.humidity);
+        rains.push(item.rain && item.rain["3h"] ? item.rain["3h"] : 0);
+        snows.push(item.snow && item.snow["3h"] ? item.snow["3h"] : 0);
+        conditions.push(item.weather[0].description);
+      });
+      
+      if (window.forecastChartInstance) {
+        window.forecastChartInstance.destroy();
+      }
+      
+      var ctx = document.getElementById('forecastChart').getContext('2d');
+      window.forecastChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Temperature (°F)',
+              data: temps,
+              borderColor: 'red',
+              backgroundColor: 'rgba(255,0,0,0.2)',
+              fill: false,
+              tension: 0.2,
+              yAxisID: 'y1'
+            },
+            {
+              label: 'Humidity (%)',
+              data: hums,
+              borderColor: 'blue',
+              backgroundColor: 'rgba(0,0,255,0.2)',
+              fill: false,
+              tension: 0.2,
+              yAxisID: 'y2'
+            },
+            {
+              label: 'Rain (mm)',
+              data: rains,
+              borderColor: 'cyan',
+              backgroundColor: 'rgba(0,255,255,0.2)',
+              fill: false,
+              tension: 0.2,
+              yAxisID: 'y3'
+            },
+            {
+              label: 'Snow (mm)',
+              data: snows,
+              borderColor: 'purple',
+              backgroundColor: 'rgba(128,0,128,0.2)',
+              fill: false,
+              tension: 0.2,
+              yAxisID: 'y4'
+            },
+            {
+              label: 'Conditions',
+              data: temps,  // Position labels based on temperature
+              type: 'line',
+              borderColor: 'rgba(0,0,0,0)',
+              backgroundColor: 'rgba(0,0,0,0)',
+              pointRadius: 0,
+              yAxisID: 'y1',
+              datalabels: {
+                align: 'top',
+                formatter: function(value, context) {
+                  return conditions[context.dataIndex];
+                },
+                color: 'black',
+                font: { size: 10 }
+              }
+            }
+          ]
+        },
+        options: {
+          plugins: {
+            datalabels: {
+              display: false // Only show for Conditions dataset
+            }
+          },
+          responsive: true,
+          scales: {
+            x: {
+              title: { display: true, text: 'Date & Time' },
+              ticks: { maxRotation: 90, minRotation: 45, autoSkip: true, maxTicksLimit: 10 }
+            },
+            y1: {
+              type: 'linear',
+              position: 'left',
+              title: { display: true, text: 'Temperature (°F)' }
+            },
+            y2: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Humidity (%)' },
+              grid: { drawOnChartArea: false },
+              offset: true
+            },
+            y3: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Rain (mm)' },
+              grid: { drawOnChartArea: false },
+              offset: true
+            },
+            y4: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: 'Snow (mm)' },
+              grid: { drawOnChartArea: false },
+              offset: true
+            }
+          }
+        },
+        plugins: [ChartDataLabels]
+      });
+    }
+
+    // Function to load saved cities from the backend and display them.
+    function loadSavedCities() {
+      fetch('/saved')
+        .then(response => response.json())
+        .then(data => {
+          var list = document.getElementById('citiesList');
+          list.innerHTML = "";
+          data.saved_cities.forEach(city => {
+            var li = document.createElement("li");
+            li.innerText = city;
+            list.appendChild(li);
+          });
+        });
+    }
+
+    // Load saved cities on page load.
+    loadSavedCities();
+  </script>
+</body>
+</html>
